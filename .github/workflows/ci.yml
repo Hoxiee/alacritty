@@ -1,37 +1,77 @@
-name: CI
+name: Linux graphics
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [master, feat/linux-graphics]
+  pull_request:
+  workflow_dispatch:
 
-env:
-  CARGO_TERM_COLOR: always
+concurrency:
+  group: linux-graphics-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest]
-
-    runs-on: ${{ matrix.os }}
-
+  linux:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Stable
-        run: cargo test
-      - name: Stable (no default features)
-        run: cargo test -p alacritty_terminal --no-default-features
-      - name: Oldstable
+      - name: Dependencies
         run: |
-          rustup default $(cat Cargo.toml | grep "rust-version" | sed 's/.*"\(.*\)".*/\1/')
-          cargo test
-      - name: Clippy
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libfreetype6-dev libfontconfig1-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-0 libgl1-mesa-dri xvfb x11-apps imagemagick chafa python3-pil
+      - name: Toolchains
         run: |
-          rustup component add clippy
-          cargo clippy --all-targets
-  check-macos-x86_64:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install target
-        run: rustup update && rustup target add x86_64-apple-darwin
+          rustup toolchain install 1.85.0 --profile minimal --component clippy
+          rustup toolchain install nightly --profile minimal --component rustfmt
+      - name: Format
+        run: cargo +nightly fmt --all -- --check
+      - name: Tests
+        run: |
+          cargo test --workspace --locked
+          cargo test -p alacritty_terminal --no-default-features --locked
+          cargo test -p vte-graphics --no-default-features --locked
+      - name: Minimum supported Rust
+        run: cargo +1.85.0 clippy --workspace --all-targets --locked
       - name: Build
-        run: cargo build --target=x86_64-apple-darwin
+        run: cargo build --release --locked
+      - name: Pixels and Chafa
+        run: python3 scripts/graphics-smoke.py --output target/graphics-smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-graphics
+          path: |
+            target/release/alacritty
+            target/graphics-smoke
+
+  arch:
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    steps:
+      - name: Dependencies
+        run: |
+          pacman -Syu --noconfirm --needed git rust cargo cmake pkgconf freetype2 fontconfig libxcb libxkbcommon libxkbcommon-x11 scdoc mesa libglvnd xorg-server-xvfb xorg-xwd imagemagick chafa python-pillow
+      - uses: actions/checkout@v4
+      - name: Build Arch package
+        run: |
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          su builder -c "cd '$GITHUB_WORKSPACE' && scripts/build-arch-package.sh"
+      - name: Package contents
+        run: |
+          pacman -U --noconfirm target/arch-package/*.pkg.tar.zst
+          alacritty --version
+          test -f /usr/share/terminfo/a/alacritty
+          test -f /usr/share/applications/Alacritty.desktop
+      - name: Pixels and Chafa on Arch
+        run: python scripts/graphics-smoke.py --binary /usr/bin/alacritty --output target/arch-graphics-smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: archlinux-graphics
+          path: |
+            target/arch-package/*.pkg.tar.zst
+            target/arch-graphics-smoke

@@ -298,6 +298,16 @@ impl TermDimensions for SizeInfo {
     fn total_lines(&self) -> usize {
         self.screen_lines()
     }
+
+    #[inline]
+    fn cell_height(&self) -> f32 {
+        self.cell_height
+    }
+
+    #[inline]
+    fn cell_width(&self) -> f32 {
+        self.cell_width
+    }
 }
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
@@ -412,7 +422,7 @@ impl Display {
         let rasterizer = Rasterizer::new()?;
 
         let font_size = config.font.size().scale(scale_factor);
-        debug!("Loading \"{}\" font", &config.font.normal().family);
+        debug!("Loading \"{}\" font", config.font.normal().family);
         let font = config.font.clone().with_size(font_size);
         let mut glyph_cache = GlyphCache::new(rasterizer, &font)?;
 
@@ -811,6 +821,8 @@ impl Display {
         }
         terminal.reset_damage();
 
+        let graphics_queues = terminal.graphics_take_queues();
+
         // Drop terminal as early as possible to free lock.
         drop(terminal);
 
@@ -835,14 +847,20 @@ impl Display {
         // Make sure this window's OpenGL context is active.
         self.make_current();
 
+        if let Some(graphics_queues) = graphics_queues {
+            self.renderer.graphics_run_updates(graphics_queues, &size_info);
+        }
+
         self.renderer.clear(background_color, config.window_opacity());
         let mut lines = RenderLines::new();
+        let mut graphics_list = renderer::graphics::RenderList::default();
 
         // Optimize loop hint comparator.
         let has_highlighted_hint =
             self.highlighted_hint.is_some() || self.vi_highlighted_hint.is_some();
 
         // Draw grid.
+        let mut rects = Vec::new();
         {
             let _sampler = self.meter.sampler();
 
@@ -850,12 +868,13 @@ impl Display {
             #[cfg(target_os = "macos")]
             self.renderer.set_viewport(&size_info);
 
-            let glyph_cache = &mut self.glyph_cache;
             let highlighted_hint = &self.highlighted_hint;
             let vi_highlighted_hint = &self.vi_highlighted_hint;
             let damage_tracker = &mut self.damage_tracker;
 
-            let cells = grid_cells.into_iter().map(|mut cell| {
+            for cell in &mut grid_cells {
+                let mut show_hint = false;
+
                 // Underline hints hovered by mouse or vi mode cursor.
                 if has_highlighted_hint {
                     let point = term::viewport_to_point(display_offset, cell.point);
@@ -865,20 +884,50 @@ impl Display {
                         hint.as_ref().is_some_and(|hint| hint.should_highlight(point, hyperlink))
                     };
                     if should_highlight(highlighted_hint) || should_highlight(vi_highlighted_hint) {
+                        show_hint = true;
                         damage_tracker.frame().damage_point(cell.point);
                         cell.flags.insert(Flags::UNDERLINE);
                     }
                 }
 
                 // Update underline/strikeout.
-                lines.update(&cell);
+                lines.update(cell);
 
-                cell
-            });
-            self.renderer.draw_cells(&size_info, glyph_cache, cells);
+                // Track any graphic present in the cell.
+                graphics_list.update(cell, show_hint);
+            }
+            let (below_background, below_text, foreground) = graphics_list.split_layers();
+            graphics_list = foreground;
+            self.renderer.graphics_draw(below_background, &size_info, &mut rects, &metrics);
+            if !below_text.is_empty() {
+                let backgrounds = grid_cells
+                    .iter_mut()
+                    .filter(|cell| cell.bg_alpha != 0.)
+                    .map(|cell| {
+                        let rect = RenderRect::new(
+                            size_info.padding_x()
+                                + cell.point.column.0 as f32 * size_info.cell_width(),
+                            size_info.padding_y()
+                                + cell.point.line as f32 * size_info.cell_height(),
+                            size_info.cell_width()
+                                * if cell.flags.contains(Flags::WIDE_CHAR) { 2. } else { 1. },
+                            size_info.cell_height(),
+                            cell.bg,
+                            cell.bg_alpha,
+                        );
+                        cell.bg_alpha = 0.;
+                        rect
+                    })
+                    .collect();
+                self.renderer.draw_rects(&size_info, &metrics, backgrounds);
+                self.renderer.graphics_draw(below_text, &size_info, &mut rects, &metrics);
+            }
+            self.renderer.draw_cells(&size_info, &mut self.glyph_cache, grid_cells.into_iter());
         }
 
-        let mut rects = lines.rects(&metrics, &size_info);
+        rects.extend(lines.rects(&metrics, &size_info));
+
+        self.renderer.graphics_draw(graphics_list, &size_info, &mut rects, &metrics);
 
         if let Some(vi_cursor_point) = vi_cursor_point {
             // Indicate vi mode by showing the cursor's position in the top right corner.

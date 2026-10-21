@@ -4,6 +4,7 @@ use std::ops::Deref;
 use std::{cmp, mem};
 
 use alacritty_terminal::event::EventListener;
+use alacritty_terminal::graphics::{GraphicId, Placeholder};
 use alacritty_terminal::grid::{Dimensions, Indexed};
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::selection::SelectionRange;
@@ -17,6 +18,8 @@ use crate::display::color::{CellRgb, DIM_FACTOR, List, Rgb};
 use crate::display::hint::{self, HintState};
 use crate::display::{Display, SizeInfo};
 use crate::event::SearchState;
+
+use smallvec::SmallVec;
 
 /// Minimum contrast between a fixed cursor color and the cell's background.
 pub const MIN_CURSOR_CONTRAST: f64 = 1.5;
@@ -35,6 +38,7 @@ pub struct RenderableContent<'a> {
     colors: &'a List,
     focused_match: Option<&'a Match>,
     size: &'a SizeInfo,
+    previous_placeholder: Option<(Point, Placeholder)>,
 }
 
 impl<'a> RenderableContent<'a> {
@@ -84,6 +88,7 @@ impl<'a> RenderableContent<'a> {
             search,
             config,
             hint,
+            previous_placeholder: None,
         }
     }
 
@@ -161,7 +166,16 @@ impl Iterator for RenderableContent<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let cell = self.terminal_content.display_iter.next()?;
-            let mut cell = RenderableCell::new(self, cell);
+            let previous = self
+                .previous_placeholder
+                .as_ref()
+                .filter(|(point, _)| {
+                    point.line == cell.point.line && point.column + 1 == cell.point.column
+                })
+                .map(|(_, p)| p);
+            let placeholder = self.terminal_content.graphics.placeholder(&cell, previous);
+            self.previous_placeholder = placeholder.clone().map(|p| (cell.point, p));
+            let mut cell = RenderableCell::new(self, cell, placeholder);
 
             if self.cursor_point == cell.point {
                 // Store the cursor which should be rendered.
@@ -197,16 +211,37 @@ pub struct RenderableCell {
     pub extra: Option<Box<RenderableCellExtra>>,
 }
 
+/// Graphic data stored in a single cell.
+#[derive(Clone, Debug)]
+pub struct RenderableGraphicCell {
+    /// Texture to draw the graphic in this cell.
+    pub id: GraphicId,
+
+    /// Offset in the x direction.
+    pub offset_x: u16,
+
+    /// Offset in the y direction.
+    pub offset_y: u16,
+
+    pub z_index: i32,
+    pub image_id: u32,
+}
+
 /// Extra storage with rarely present fields for [`RenderableCell`], to reduce the cell size we
 /// pass around.
 #[derive(Clone, Debug)]
 pub struct RenderableCellExtra {
     pub zerowidth: Option<Vec<char>>,
     pub hyperlink: Option<Hyperlink>,
+    pub graphics: Option<SmallVec<[RenderableGraphicCell; 1]>>,
 }
 
 impl RenderableCell {
-    fn new(content: &mut RenderableContent<'_>, cell: Indexed<&Cell>) -> Self {
+    fn new(
+        content: &mut RenderableContent<'_>,
+        cell: Indexed<&Cell>,
+        placeholder: Option<Placeholder>,
+    ) -> Self {
         // Lookup RGB values.
         let mut fg = Self::compute_fg_rgb(content, cell.fg, cell.flags);
         let mut bg = Self::compute_bg_rgb(content, cell.bg);
@@ -285,13 +320,37 @@ impl RenderableCell {
             .underline_color()
             .map_or(fg, |underline| Self::compute_fg_rgb(content, underline, flags));
 
-        let zerowidth = cell.zerowidth();
+        let zerowidth = if placeholder.is_some() { None } else { cell.zerowidth() };
         let hyperlink = cell.hyperlink();
 
-        let extra = (zerowidth.is_some() || hyperlink.is_some()).then(|| {
+        let mut graphics = cell.graphics().map(|graphics| {
+            graphics
+                .iter()
+                .map(|graphic| RenderableGraphicCell {
+                    id: graphic.texture.id,
+                    offset_x: graphic.offset_x,
+                    offset_y: graphic.offset_y,
+                    z_index: graphic.z_index,
+                    image_id: graphic.image_id,
+                })
+                .collect::<_>()
+        });
+
+        if let Some(placeholder) = placeholder {
+            character = ' ';
+            graphics.get_or_insert_with(SmallVec::new).push(RenderableGraphicCell {
+                id: placeholder.texture_id,
+                offset_x: placeholder.offset_x,
+                offset_y: placeholder.offset_y,
+                z_index: placeholder.z_index,
+                image_id: placeholder.image_id,
+            });
+        }
+        let extra = (zerowidth.is_some() || hyperlink.is_some() || graphics.is_some()).then(|| {
             Box::new(RenderableCellExtra {
                 zerowidth: zerowidth.map(|zerowidth| zerowidth.to_vec()),
                 hyperlink,
+                graphics,
             })
         });
 

@@ -79,6 +79,12 @@ file. If an application captures your mouse clicks, which is indicated by a
 change in mouse cursor shape, you're required to hold <kbd>Shift</kbd> to bypass
 that.
 
+## Graphics protocols
+
+Graphics can be added using Sixel, Kitty static images or iTerm2 inline images.
+See [graphics usage and compatibility](graphics.md) for commands and limitations. Every graphic can
+have up to 1024 colors, and it is limited to 4096x4096 pixels.
+
 ## Multi-Window
 
 Alacritty supports running multiple terminal emulators from the same Alacritty

@@ -6,11 +6,12 @@ If you're just interested in the Alacritty binary and you don't need the
 install it directly through cargo:
 
 ```sh
-cargo install alacritty
+cargo install --git https://github.com/Hoxiee/alacritty --branch master --locked alacritty
 ```
 
 Note that you will still need to install the dependencies for your OS of choice.
 Please refer to the [Dependencies](#dependencies) section.
+For photo viewing commands and protocol compatibility, see [graphics support](docs/graphics.md).
 
 # Manual Installation
 
@@ -53,7 +54,7 @@ Please refer to the [Dependencies](#dependencies) section.
 Before compiling Alacritty, you'll have to first clone the source code:
 
 ```sh
-git clone https://github.com/alacritty/alacritty.git
+git clone --branch master https://github.com/Hoxiee/alacritty.git
 cd alacritty
 ```
 
@@ -83,7 +84,7 @@ to build Alacritty. Here's an apt command that should install all of them. If
 something is still found to be missing, please open an issue.
 
 ```sh
-apt install cmake g++ pkg-config libfontconfig1-dev libxcb-xfixes0-dev libxkbcommon-dev python3
+apt install cmake g++ pkg-config libfontconfig1-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-0 python3
 ```
 
 #### Arch Linux

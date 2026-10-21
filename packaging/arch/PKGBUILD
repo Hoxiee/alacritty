@@ -1,0 +1,41 @@
+# Local source package for the Alacritty graphics fork.
+pkgname=alacritty-graphics
+pkgver=0.18.0.dev
+pkgrel=1
+pkgdesc='Alacritty with Sixel and static Kitty graphics support'
+arch=('x86_64' 'aarch64')
+url='https://github.com/Hoxiee/alacritty'
+license=('Apache-2.0' 'MIT')
+depends=('freetype2' 'fontconfig' 'libxcb' 'libxkbcommon' 'libxkbcommon-x11' 'libglvnd')
+makedepends=('cargo' 'cmake' 'pkgconf' 'scdoc' 'git')
+optdepends=('chafa: display photos using Kitty or Sixel')
+provides=('alacritty')
+conflicts=('alacritty' 'alacritty-git')
+options=('!debug')
+source=('alacritty-source.tar.gz')
+sha256sums=('SKIP')
+
+build() {
+  cd "$srcdir/alacritty"
+  cargo build --release --locked
+  for page in extra/man/*.scd; do
+    scdoc < "$page" > "${page%.scd}"
+  done
+}
+
+package() {
+  cd "$srcdir/alacritty"
+  install -Dm755 target/release/alacritty "$pkgdir/usr/bin/alacritty"
+  tic -x -o "$pkgdir/usr/share/terminfo" extra/alacritty.info
+  install -Dm644 extra/linux/Alacritty.desktop "$pkgdir/usr/share/applications/Alacritty.desktop"
+  install -Dm644 extra/logo/alacritty-term.svg "$pkgdir/usr/share/pixmaps/Alacritty.svg"
+  install -Dm644 extra/completions/alacritty.bash "$pkgdir/usr/share/bash-completion/completions/alacritty"
+  install -Dm644 extra/completions/alacritty.fish "$pkgdir/usr/share/fish/vendor_completions.d/alacritty.fish"
+  install -Dm644 extra/completions/_alacritty "$pkgdir/usr/share/zsh/site-functions/_alacritty"
+  for page in extra/man/alacritty*.[157]; do
+    install -Dm644 "$page" "$pkgdir/usr/share/man/man${page##*.}/${page##*/}"
+  done
+  install -Dm644 docs/graphics.md "$pkgdir/usr/share/doc/$pkgname/graphics.md"
+  install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+  install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-APACHE"
+}

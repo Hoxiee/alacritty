@@ -10,8 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## 0.26.1-dev
 
+### Added
+
+- Kitty static image protocol and Unicode placeholder resolution
+- iTerm2 inline and multipart image decoding
+- Bounded image decoding and upload queues
+
 ### Fixed
 
+- Image opacity checks at nonzero horizontal offsets and image edges
+- Image texture cleanup when cells are cloned or history is cleared
+- Canceled graphics commands displaying incomplete images
 - Panic when the PTY could not be set to non-blocking
 - Off-by-one in ViMotion::ParagraphUp
 - Unbounded per-cell memory usage for zero-width cells
