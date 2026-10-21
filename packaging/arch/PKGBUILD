@@ -6,7 +6,7 @@ pkgdesc='Alacritty with Sixel and static Kitty graphics support'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Hoxiee/alacritty'
 license=('Apache-2.0' 'MIT')
-depends=('freetype2' 'fontconfig' 'libxcb' 'libxkbcommon' 'libxkbcommon-x11' 'libglvnd')
+depends=('freetype2' 'fontconfig' 'libxcb' 'libxkbcommon' 'libxkbcommon-x11' 'libglvnd' 'ncurses>=6.5')
 makedepends=('cargo' 'cmake' 'pkgconf' 'scdoc' 'git')
 optdepends=('chafa: display photos using Kitty or Sixel')
 provides=('alacritty')
@@ -26,8 +26,8 @@ build() {
 package() {
   cd "$srcdir/alacritty"
   install -Dm755 target/release/alacritty "$pkgdir/usr/bin/alacritty"
-  install -dm755 "$pkgdir/usr/share/terminfo"
-  tic -x -o "$pkgdir/usr/share/terminfo" extra/alacritty.info
+  # Arch's ncurses already owns the system Alacritty terminfo entries.
+  install -Dm644 extra/alacritty.info "$pkgdir/usr/share/doc/$pkgname/alacritty.info"
   install -Dm644 extra/linux/Alacritty.desktop "$pkgdir/usr/share/applications/Alacritty.desktop"
   install -Dm644 extra/logo/alacritty-term.svg "$pkgdir/usr/share/pixmaps/Alacritty.svg"
   install -Dm644 extra/completions/alacritty.bash "$pkgdir/usr/share/bash-completion/completions/alacritty"

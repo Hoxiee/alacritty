@@ -26,7 +26,7 @@ For Kitty's `kitten icat`, direct transfer also works over SSH:
 kitten icat --transfer-mode=stream photo.jpg
 ```
 
-For an Arch package with terminfo, desktop entry, manpages and completions:
+For an Arch package with desktop entry, manpages and completions:
 
 ```sh
 sudo pacman -S --needed base-devel rustup cmake pkgconf scdoc freetype2 fontconfig libxcb libxkbcommon libxkbcommon-x11 libglvnd
@@ -37,6 +37,8 @@ sudo pacman -U target/arch-package/alacritty-graphics-*.pkg.tar.zst
 The script packages the checked-out commit. The package provides `alacritty` and
 replaces Arch's upstream `alacritty` package when installed. Preview packages
 can also be downloaded from [this fork's releases](https://github.com/Hoxiee/alacritty/releases).
+System terminfo is supplied by Arch's `ncurses`; the package includes its terminfo
+source under `/usr/share/doc/alacritty-graphics/alacritty.info`.
 
 TUI clients can use ordinary placements or Kitty Unicode placeholders. tmux must
 be configured to pass image escape sequences through; direct terminal operation
