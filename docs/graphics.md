@@ -29,7 +29,7 @@ kitten icat --transfer-mode=stream photo.jpg
 For an Arch package with desktop entry, manpages and completions:
 
 ```sh
-sudo pacman -S --needed base-devel rustup cmake pkgconf scdoc freetype2 fontconfig libxcb libxkbcommon libxkbcommon-x11 libglvnd
+sudo pacman -S --needed base-devel rustup cmake pkgconf scdoc freetype2 fontconfig libxcb libxkbcommon libxkbcommon-x11 libglvnd libxcursor libxi libxrandr wayland ncurses
 scripts/build-arch-package.sh
 sudo pacman -U target/arch-package/alacritty-graphics-*.pkg.tar.zst
 ```

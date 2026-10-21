@@ -53,7 +53,7 @@ jobs:
     steps:
       - name: Dependencies
         run: |
-          pacman -Syu --noconfirm --needed git rust cargo cmake pkgconf freetype2 fontconfig libxcb libxkbcommon libxkbcommon-x11 scdoc mesa libglvnd ttf-dejavu xorg-server-xvfb xorg-xwd imagemagick chafa python-pillow
+          pacman -Syu --noconfirm --needed git rust cargo cmake pkgconf freetype2 fontconfig libxcb libxkbcommon libxkbcommon-x11 scdoc mesa libglvnd libxcursor libxi libxrandr wayland ncurses ttf-dejavu xorg-server-xvfb xorg-xwd imagemagick chafa python-pillow
       - uses: actions/checkout@v4
       - name: Build Arch package
         run: |
