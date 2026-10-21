@@ -25,10 +25,29 @@ def kitty(control, pixels):
     ).encode()
 
 
-def placeholder_pixels(cell_width, cell_height):
-    scale = min(8 * cell_width / 72, 2 * cell_height / 42)
-    area = math.floor(72 * scale + 0.5) * math.floor(42 * scale + 0.5)
+def fitted_pixels(width, height, columns, rows, cell_width, cell_height):
+    scale = min(columns * cell_width / width, rows * cell_height / height)
+    area = math.floor(width * scale + 0.5) * math.floor(height * scale + 0.5)
     return area, area
+
+
+def chafa_pixels(sequence, fmt):
+    # Chafa releases use different fallback cell sizes outside a terminal.
+    # The stretched solid fixture lets us check the entire emitted rectangle.
+    if fmt == "sixels":
+        match = re.search(rb'q"\d+;\d+;(\d+);(\d+)', sequence)
+        assert match, "Missing Chafa Sixel raster dimensions"
+        width, height = map(int, match.groups())
+        return width * height, width * height
+    if fmt == "kitty":
+        header = sequence.split(b"\x1b_G", 1)[1].split(b"\x1b\\", 1)[0]
+        dimensions = {key: int(value) for key, value in re.findall(rb"([svcr])=(\d+)", header)}
+        width, height, columns, rows = (dimensions[key] for key in [b"s", b"v", b"c", b"r"])
+        return lambda w, h: fitted_pixels(width, height, columns, rows, w, h)
+    match = re.search(rb"width=(\d+);height=(\d+);preserveAspectRatio=0", sequence)
+    assert match, "Missing Chafa iTerm2 cell dimensions"
+    columns, rows = map(int, match.groups())
+    return lambda w, h: (columns * w * rows * h,) * 2
 
 
 def run_case(binary, directory, name, sequence, expected, renderer=None):
@@ -123,14 +142,14 @@ def main():
             placeholders = "\x1b[38;5;42m"
             for row in ["\u0305", "\u030d"]:
                 placeholders += "\U0010eeee" + row + "\u0305" + "\U0010eeee" * 7 + "\r\n"
-            run_case(binary, directory, "kitty-placeholders", virtual + placeholders.encode(), placeholder_pixels)
-            chafa_options = ["--passthrough=none", "--animate=off", "--exact-size=on", "--size=8x2", "--font-ratio=9/21"]
+            run_case(binary, directory, "kitty-placeholders", virtual + placeholders.encode(), lambda w, h: fitted_pixels(72, 42, 8, 2, w, h))
+            chafa_options = ["--passthrough=none", "--animate=off", "--exact-size=off", "--stretch", "--size=8x2", "--font-ratio=9/21"]
             # Ubuntu 24.04 ships Chafa 1.14, before the --probe option was added.
             if "--probe" in subprocess.check_output(["chafa", "--help"], text=True):
                 chafa_options.append("--probe=off")
             for fmt in ["kitty", "sixels", "iterm"]:
                 sequence = subprocess.check_output(["chafa", *chafa_options, "--format=" + fmt, str(fixture)])
-                run_case(binary, directory, "chafa-" + fmt, sequence, (2500, 6000))
+                run_case(binary, directory, "chafa-" + fmt, sequence, chafa_pixels(sequence, fmt))
         finally:
             xvfb.terminate()
             xvfb.wait(timeout=10)
