@@ -6,7 +6,7 @@ pkgdesc='Alacritty with Sixel and static Kitty graphics support'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Hoxiee/alacritty'
 license=('Apache-2.0' 'MIT')
-depends=('freetype2' 'fontconfig' 'libxcb' 'libxkbcommon' 'libxkbcommon-x11' 'libglvnd' 'ncurses>=6.5')
+depends=('freetype2' 'fontconfig' 'libxcb' 'libxkbcommon' 'libxkbcommon-x11' 'libglvnd' 'libxcursor' 'libxi' 'libxrandr' 'wayland' 'ncurses>=6.5')
 makedepends=('cargo' 'cmake' 'pkgconf' 'scdoc' 'git')
 optdepends=('chafa: display photos using Kitty or Sixel')
 provides=('alacritty')
