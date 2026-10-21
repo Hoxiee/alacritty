@@ -20,11 +20,14 @@ use crate::selection::{Selection, SelectionRange, SelectionType};
 use crate::term::cell::{Cell, Flags, LineLength};
 use crate::term::color::Colors;
 use crate::vi_mode::{ViModeCursor, ViMotion};
+use crate::vte::Params;
 use crate::vte::ansi::{
     self, Attr, CharsetIndex, Color, CursorShape, CursorStyle, Handler, Hyperlink, KeyboardModes,
     KeyboardModesApplyBehavior, NamedColor, NamedMode, NamedPrivateMode, PrivateMode, Rgb,
     StandardCharset,
 };
+
+use crate::graphics::{Graphics, UpdateQueues};
 
 pub mod cell;
 pub mod color;
@@ -84,6 +87,10 @@ bitflags! {
                                       | Self::REPORT_ALL_KEYS_AS_ESC.bits()
                                       | Self::REPORT_ASSOCIATED_TEXT.bits();
          const ANY                    = u32::MAX;
+
+        const SIXEL_DISPLAY             = 1 << 28;
+        const SIXEL_PRIV_PALETTE        = 1 << 29;
+        const SIXEL_CURSOR_TO_THE_RIGHT = 1 << 31;
     }
 }
 
@@ -116,6 +123,7 @@ impl Default for TermMode {
             | TermMode::LINE_WRAP
             | TermMode::ALTERNATE_SCROLL
             | TermMode::URGENCY_HINTS
+            | TermMode::SIXEL_PRIV_PALETTE
     }
 }
 
@@ -307,7 +315,7 @@ pub struct Term<T> {
     cursor_style: Option<CursorStyle>,
 
     /// Proxy for sending events to the event loop.
-    event_proxy: T,
+    pub(crate) event_proxy: T,
 
     /// Current title of the window.
     title: Option<String>,
@@ -315,6 +323,9 @@ pub struct Term<T> {
     /// Stack of saved window titles. When a title is popped from this stack, the `title` for the
     /// term is set.
     title_stack: Vec<Option<String>>,
+
+    /// Data to add graphics to a grid.
+    pub(crate) graphics: Graphics,
 
     /// The stack for the keyboard modes.
     keyboard_mode_stack: Vec<KeyboardModes>,
@@ -431,6 +442,7 @@ impl<T> Term<T> {
             grid,
             tabs,
             inactive_keyboard_mode_stack: Default::default(),
+            graphics: Graphics::new(dimensions),
             keyboard_mode_stack: Default::default(),
             active_charset: Default::default(),
             vi_mode_cursor: Default::default(),
@@ -491,8 +503,13 @@ impl<T> Term<T> {
     }
 
     #[inline]
-    fn mark_fully_damaged(&mut self) {
+    pub(crate) fn mark_fully_damaged(&mut self) {
         self.damage.full = true;
+    }
+
+    #[inline]
+    pub(crate) fn mark_line_damaged(&mut self, line: Line) {
+        self.damage.damage_line(line.0 as usize, 0, self.columns() - 1);
     }
 
     /// Set new options for the [`Term`].
@@ -651,6 +668,12 @@ impl<T> Term<T> {
         &mut self.grid
     }
 
+    /// Get queues to update graphic data. If both queues are empty, it returns
+    /// `None`.
+    pub fn graphics_take_queues(&mut self) -> Option<UpdateQueues> {
+        self.graphics.take_queues()
+    }
+
     /// Resize terminal to new dimensions.
     pub fn resize<S: Dimensions>(&mut self, size: S) {
         let old_cols = self.columns();
@@ -702,6 +725,9 @@ impl<T> Term<T> {
 
         // Resize damage information.
         self.damage.resize(num_cols, num_lines);
+
+        // Update size information for graphics.
+        self.graphics.resize(&size);
     }
 
     /// Active terminal modes.
@@ -721,6 +747,7 @@ impl<T> Term<T> {
 
             // Reset alternate screen contents.
             self.inactive_grid.reset_region(..);
+            self.graphics.inactive_kitty = Default::default();
         }
 
         mem::swap(&mut self.keyboard_mode_stack, &mut self.inactive_keyboard_mode_stack);
@@ -729,6 +756,8 @@ impl<T> Term<T> {
         self.set_keyboard_mode(keyboard_mode, KeyboardModesApplyBehavior::Replace);
 
         mem::swap(&mut self.grid, &mut self.inactive_grid);
+        mem::swap(&mut self.graphics.kitty, &mut self.graphics.inactive_kitty);
+        self.graphics.iterm_transfer = None;
         self.mode ^= TermMode::ALT_SCREEN;
         self.selection = None;
         self.mark_fully_damaged();
@@ -1010,11 +1039,21 @@ impl<T> Term<T> {
             cursor_cell = self.grid.cursor_cell();
         }
 
+        let graphics = cursor_cell
+            .take_graphics()
+            .map(|mut graphics| {
+                graphics.retain(|g| g.persistent);
+                graphics
+            })
+            .filter(|graphics| !graphics.is_empty());
         cursor_cell.c = c;
         cursor_cell.fg = fg;
         cursor_cell.bg = bg;
         cursor_cell.flags = flags;
         cursor_cell.extra = extra;
+        if let Some(graphics) = graphics {
+            cursor_cell.set_graphics(graphics);
+        }
     }
 
     #[inline]
@@ -1258,7 +1297,7 @@ impl<T: EventListener> Handler for Term<T> {
         match intermediate {
             None => {
                 trace!("Reporting primary device attributes");
-                let text = String::from("\x1b[?6c");
+                let text = String::from("\x1b[?62;4;6;22c");
                 self.event_proxy.send_event(Event::PtyWrite(text));
             },
             Some('>') => {
@@ -1840,6 +1879,11 @@ impl<T: EventListener> Handler for Term<T> {
         self.cursor_style = None;
         self.grid.reset();
         self.inactive_grid.reset();
+        self.graphics.kitty = Default::default();
+        self.graphics.inactive_kitty = Default::default();
+        self.graphics.iterm_transfer = None;
+        self.graphics.sixel_parser = None;
+        self.graphics.sixel_shared_palette = None;
         self.scroll_region = Line(0)..Line(self.screen_lines() as i32);
         self.tabs = TabStops::new(self.columns());
         self.title_stack = Vec::new();
@@ -1934,6 +1978,25 @@ impl<T: EventListener> Handler for Term<T> {
     fn set_private_mode(&mut self, mode: PrivateMode) {
         let mode = match mode {
             PrivateMode::Named(mode) => mode,
+
+            // SixelDisplay
+            PrivateMode::Unknown(80) => {
+                self.mode.insert(TermMode::SIXEL_DISPLAY);
+                return;
+            },
+
+            // SixelPrivateColorRegisters
+            PrivateMode::Unknown(1070) => {
+                self.mode.insert(TermMode::SIXEL_PRIV_PALETTE);
+                return;
+            },
+
+            // SixelCursorToTheRight
+            PrivateMode::Unknown(8452) => {
+                self.mode.insert(TermMode::SIXEL_CURSOR_TO_THE_RIGHT);
+                return;
+            },
+
             PrivateMode::Unknown(mode) => {
                 debug!("Ignoring unknown mode {mode} in set_private_mode");
                 return;
@@ -1997,6 +2060,26 @@ impl<T: EventListener> Handler for Term<T> {
     fn unset_private_mode(&mut self, mode: PrivateMode) {
         let mode = match mode {
             PrivateMode::Named(mode) => mode,
+
+            // SixelDisplay
+            PrivateMode::Unknown(80) => {
+                self.mode.remove(TermMode::SIXEL_DISPLAY);
+                return;
+            },
+
+            // SixelPrivateColorRegisters
+            PrivateMode::Unknown(1070) => {
+                self.graphics.sixel_shared_palette = None;
+                self.mode.remove(TermMode::SIXEL_PRIV_PALETTE);
+                return;
+            },
+
+            // SixelCursorToTheRight
+            PrivateMode::Unknown(8452) => {
+                self.mode.remove(TermMode::SIXEL_CURSOR_TO_THE_RIGHT);
+                return;
+            },
+
             PrivateMode::Unknown(mode) => {
                 debug!("Ignoring unknown mode {mode} in unset_private_mode");
                 return;
@@ -2269,6 +2352,73 @@ impl<T: EventListener> Handler for Term<T> {
         let text = format!("\x1b[8;{};{}t", self.screen_lines(), self.columns());
         self.event_proxy.send_event(Event::PtyWrite(text));
     }
+
+    #[inline]
+    fn graphics_attribute(&mut self, pi: u16, pa: u16) {
+        self.graphics.graphics_attribute(&self.event_proxy, pi, pa);
+    }
+
+    fn apc_start(&mut self) {
+        self.graphics.kitty.start_command();
+    }
+
+    fn apc_put(&mut self, byte: u8) {
+        self.graphics.kitty.put(byte);
+    }
+
+    fn apc_end(&mut self, terminated: bool) {
+        crate::graphics::kitty::finish_command(self, terminated);
+    }
+
+    fn osc_unhandled(&mut self, params: &[&[u8]], _terminator: &str) {
+        let columns = self.columns();
+        let lines = self.screen_lines();
+        if let Some(graphic) = self.graphics.osc1337(params, columns, lines) {
+            crate::graphics::insert_graphic(self, graphic, None);
+        }
+    }
+
+    /// Start of a device control string.
+    fn dcs_hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        self.graphics.sixel_parser = None;
+        if ignore {
+            return;
+        }
+        match (action, intermediates) {
+            ('q', []) => {
+                self.graphics.start_sixel_graphic(params);
+            },
+            _ => debug!(
+                "[unhandled hook] params={params:?}, ints: {intermediates:?}, ignore: {ignore:?}, \
+                 action: {action:?}"
+            ),
+        }
+    }
+
+    /// Byte of a device control string.
+    fn dcs_put(&mut self, byte: u8) {
+        if let Some(parser) = &mut self.graphics.sixel_parser {
+            if let Err(err) = parser.put(byte) {
+                log::warn!("Failed to parse Sixel data: {err}");
+                self.graphics.sixel_parser = None;
+            }
+        } else {
+            debug!("[unhandled put] byte={byte:?}");
+        }
+    }
+
+    fn dcs_cancel(&mut self) {
+        self.graphics.sixel_parser = None;
+    }
+
+    /// End of a device control string.
+    fn dcs_unhook(&mut self) {
+        if let Some(parser) = self.graphics.sixel_parser.take() {
+            crate::graphics::parse_sixel(self, *parser);
+        } else {
+            debug!("[unhandled dcs_unhook]");
+        }
+    }
 }
 
 /// The state of the [`Mode`] and [`PrivateMode`].
@@ -2397,6 +2547,7 @@ pub struct RenderableContent<'a> {
     pub display_offset: usize,
     pub colors: &'a color::Colors,
     pub mode: TermMode,
+    pub graphics: &'a Graphics,
 }
 
 impl<'a> RenderableContent<'a> {
@@ -2408,6 +2559,7 @@ impl<'a> RenderableContent<'a> {
             selection: term.selection.as_ref().and_then(|s| s.to_range(term)),
             colors: &term.colors,
             mode: *term.mode(),
+            graphics: &term.graphics,
         }
     }
 }

@@ -9,6 +9,23 @@
        src="https://raw.githubusercontent.com/alacritty/alacritty/master/extra/promo/alacritty-readme.png">
 </p>
 
+## Graphics fork
+
+This fork starts from [official Alacritty](https://github.com/alacritty/alacritty)
+and ports the Sixel foundation from [ayosec](https://github.com/ayosec/alacritty),
+with additional Kitty support and image rendering fixes. Linux and Arch Linux
+are the maintained targets:
+
+- Sixel, including palette queries and scrollback.
+- Kitty static images: RGB/RGBA/PNG, chunks, zlib, files, POSIX shared memory,
+  placements, cropping, scaling, deletion, and Unicode placeholders.
+- iTerm2 inline and multipart images: PNG, JPEG, GIF, BMP, WebP, and TIFF.
+
+See [graphics support and usage](docs/graphics.md) for installation, photo viewing,
+compatibility, resource limits, and validation. Build this fork to use these features;
+upstream Alacritty binaries do not include them.
+Graphics preview binaries are available from [this fork's releases](https://github.com/Hoxiee/alacritty/releases).
+
 ## About
 
 Alacritty is a modern terminal emulator that comes with sensible defaults, but
@@ -21,7 +38,7 @@ The software is considered to be at a **beta** level of readiness; there are
 a few missing features and bugs to be fixed, but it is already used by many as
 a daily driver.
 
-Precompiled binaries are available from the [GitHub releases page](https://github.com/alacritty/alacritty/releases).
+Precompiled graphics binaries are available from the [GitHub releases page](https://github.com/Hoxiee/alacritty/releases).
 
 Join [`#alacritty`] on libera.chat if you have questions or looking for a quick help.
 
@@ -42,8 +59,8 @@ You can find an overview over the features available in Alacritty [here](./docs/
 Alacritty can be installed by using various package managers on Linux, BSD,
 macOS and Windows.
 
-Prebuilt binaries for macOS and Windows can also be downloaded from the
-[GitHub releases page](https://github.com/alacritty/alacritty/releases).
+Prebuilt graphics binaries can be downloaded from the
+[GitHub releases page](https://github.com/Hoxiee/alacritty/releases) for the listed platforms.
 
 For everyone else, the detailed instructions to install Alacritty can be found
 [here](INSTALL.md).

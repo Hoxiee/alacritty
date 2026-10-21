@@ -276,3 +276,18 @@ Found a bug? Please report it at _https://github.com/alacritty/alacritty/issues_
 
 - Christian Duerr <contact@christianduerr.com>
 - Kirill Chibisov <contact@kchibisov.com>
+
+# Graphics protocols
+
+This graphics fork supports Sixel (_DCS q_), Kitty static images (_APC G_),
+and iTerm2 inline images (_OSC 1337 File_ and multipart commands).
+
+Kitty supports RGB, RGBA and PNG data, direct chunked transfers, zlib compression,
+regular files, POSIX shared memory, image and placement identifiers, cropping,
+cell sizing, pixel offsets, z-index, cursor policy, deletion and Unicode
+placeholders. Animation and relative placements return *ENOTSUP*. Named shared
+memory transport is unavailable on Windows; direct and file transfers work there.
+
+Images are limited to 4096 by 4096 pixels and 64 MiB per transfer. Stored Kitty
+image data, placement textures, pending uploads and GPU textures have bounded
+quotas. See _docs/graphics.md_ in the source tree for usage and compatibility.

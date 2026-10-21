@@ -15,7 +15,16 @@ Notable changes to the `alacritty_terminal` crate are documented in its
 - Fixed `alacritty-escapes(7)` manpage missing from macOS install
 - Added the `Open Alacritty here` entry to the right-click context menu for folders on Windows
 
+### Added
+
+- Static Kitty graphics protocol images, including Unicode placeholders
+- iTerm2 inline and multipart image support
+
 ### Fixed
+
+- Graphics disappearing from cells without hyperlinks or combining characters
+- Graphics clipping, transparency checks, and texture lifetime across grid copies
+- RGB image uploads with widths not divisible by four
 
 - Spurious "Failed to set new owner of XCB selection" warnings on X11
 - Lacking permissions to launch software sending Apple events
