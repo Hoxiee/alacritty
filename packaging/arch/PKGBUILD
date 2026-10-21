@@ -26,6 +26,7 @@ build() {
 package() {
   cd "$srcdir/alacritty"
   install -Dm755 target/release/alacritty "$pkgdir/usr/bin/alacritty"
+  install -dm755 "$pkgdir/usr/share/terminfo"
   tic -x -o "$pkgdir/usr/share/terminfo" extra/alacritty.info
   install -Dm644 extra/linux/Alacritty.desktop "$pkgdir/usr/share/applications/Alacritty.desktop"
   install -Dm644 extra/logo/alacritty-term.svg "$pkgdir/usr/share/pixmaps/Alacritty.svg"
